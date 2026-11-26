@@ -14,6 +14,13 @@ command -v agent-browser >/dev/null \
   && ok "agent-browser $(agent-browser --version 2>/dev/null | awk '{print $2}')" \
   || bad "agent-browser not installed" "npm i -g agent-browser"
 
+node_major="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
+if (( node_major >= 22 )) && command -v sqlite3 >/dev/null; then
+  ok "node $node_major and sqlite3 (for dia-profile.mjs)"
+else
+  bad "dia-profile.mjs needs Node 22+ and sqlite3" "install Node 22 or newer (sqlite3 ships with macOS)"
+fi
+
 pgrep -x Dia >/dev/null && ok "Dia is running" || bad "Dia is not running" "open -a Dia"
 
 port=""

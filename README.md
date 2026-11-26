@@ -47,6 +47,25 @@ Check the whole chain any time:
 Uninstall with `scripts/uninstall.sh`. With the app runner, also remove DiaAutoAllow from the
 Accessibility list.
 
+## Other Dia profiles
+
+Plain `agent-browser` drives Dia's main profile. For any other profile, `dia-profile.mjs` starts
+a separate agent-browser session (`dia-<profile>`, headless unless `--headed`) and gives it that
+profile's cookies, read live from Dia over CDP. Dia's windows are never touched, and several
+profiles can run at once.
+
+```bash
+P=~/.agents/skills/dia-browser/scripts/dia-profile.mjs
+$P list                               # profiles, loaded in Dia or not, running sessions
+$P open cuong-dev https://github.com  # start or refresh a session; --headed to watch it
+$P ab cuong-dev snapshot -i           # run any agent-browser command against the session
+$P close cuong-dev
+```
+
+The profile must have an open window in Dia (CDP only sees loaded profiles). Only cookies are
+copied, as a snapshot: sites that keep their login in localStorage may ask to log in, and a
+login made in Dia later needs `open` again.
+
 ## How it got here
 
 The goal: let a coding agent control the browser where I am already logged in, without logging
@@ -73,6 +92,21 @@ in again.
    signature, so every rebuild of `DiaAutoAllow.app` silently revoked it, and adding the app
    back means a manual trip through System Settings. Running the same script as a pm2 process
    reuses the grant pm2's `node` already has, so pm2 became the default runner.
+7. **Other profiles cannot be reached through Dia's own windows safely.** CDP's
+   `Target.createTarget` only accepts browser contexts CDP created, so it cannot open a tab in
+   an existing profile, and Dia ignores `--profile-directory` (it starts a second instance on
+   the same data folder instead). Switching profiles through Dia's Window menu works, but menu
+   commands act on whatever window is in front, which changes while the user browses, and a
+   switched window also pulls in that profile's saved tabs. A first version did this and twice
+   switched the user's own window.
+8. **Headless Dia cannot use a copied profile.** Dia runs headless, but a copy of the profile
+   folder loses every login: its cookies are encrypted with the "Dia Safe Storage" Keychain key,
+   which headless mode does not use, so 2919 of 2919 cookies failed to decrypt.
+9. **Live cookies over CDP do work.** `Network.getAllCookies`, called in one of the profile's own
+   tabs, returns that profile's cookies already decrypted. Setting them into a separate
+   agent-browser browser with `Storage.setCookies` gives a session that is logged in as the
+   profile, and nothing in Dia changes. The profile is found by matching those cookies against
+   the profile's own `Cookies` database (host, name and path only, read-only).
 
 ## Layout
 
@@ -82,6 +116,7 @@ skills/dia-browser/
   scripts/install.sh             # machine setup (idempotent)
   scripts/uninstall.sh           # reverses install.sh
   scripts/doctor.sh              # checks every link, prints the fix
+  scripts/dia-profile.mjs        # per-profile agent-browser sessions with the profile's cookies
   scripts/DiaAutoAllow.applescript
 ```
 
