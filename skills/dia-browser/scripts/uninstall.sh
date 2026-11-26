@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
-# Reverses install.sh: stops and removes DiaAutoAllow.app, its login item,
-# and the "cdp" default in ~/.agent-browser/config.json.
+# Reverses install.sh: stops DiaAutoAllow (pm2 process or app and its login item)
+# and removes the "cdp" default from ~/.agent-browser/config.json.
 set -euo pipefail
 
 APP="$HOME/Applications/DiaAutoAllow.app"
 CONFIG="$HOME/.agent-browser/config.json"
 
+if command -v pm2 >/dev/null && pm2 delete dia-auto-allow >/dev/null 2>&1; then
+  pm2 save >/dev/null
+fi
 pkill -f "$APP/Contents/MacOS/applet" 2>/dev/null || true
 osascript -e 'tell application "System Events" to delete (every login item whose name is "DiaAutoAllow")' >/dev/null 2>&1 || true
 rm -rf "$APP"
@@ -24,5 +27,5 @@ JXA
 fi
 
 echo "==> Removed DiaAutoAllow and the agent-browser cdp default."
-echo "==> Remove DiaAutoAllow from System Settings > Privacy & Security > Accessibility by hand."
+echo "==> If you used the app runner, also remove DiaAutoAllow from System Settings > Privacy & Security > Accessibility."
 echo "==> Turn off remote debugging in Dia at chrome://inspect/#remote-debugging."

@@ -35,8 +35,12 @@ else
   bad "agent-browser has no cdp default" "$(dirname "$0")/install.sh"
 fi
 
-pgrep -f "$APP/Contents/MacOS/applet" >/dev/null \
-  && ok "DiaAutoAllow is running" \
-  || bad "DiaAutoAllow is not running" "open \"$APP\" (or run install.sh)"
+if command -v pm2 >/dev/null && pm2 describe dia-auto-allow 2>/dev/null | grep -q 'status.*online'; then
+  ok "DiaAutoAllow is running under pm2 (pm2 logs dia-auto-allow)"
+elif pgrep -f "$APP/Contents/MacOS/applet" >/dev/null; then
+  ok "DiaAutoAllow.app is running"
+else
+  bad "DiaAutoAllow is not running" "$(dirname "$0")/install.sh"
+fi
 
 exit "$fail"

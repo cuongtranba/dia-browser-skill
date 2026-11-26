@@ -20,15 +20,20 @@ npx skills add cuongtranba/dia-browser-skill    # installs the dia-browser skill
 ~/.agents/skills/dia-browser/scripts/install.sh # one-time machine setup
 ```
 
-`install.sh` does three things, and is safe to re-run:
+`install.sh` does two things, and is safe to re-run:
 
-1. Builds `~/Applications/DiaAutoAllow.app`, a tiny background AppleScript applet that clicks
-   **Allow** on Dia's "Allow debugging connection?" sheet (and on nothing else), and adds it to
-   Login Items.
+1. Starts **DiaAutoAllow**, a small AppleScript that checks Dia once a second and clicks
+   **Allow** on the "Allow debugging connection?" sheet (and on nothing else). It needs macOS
+   **Accessibility**, granted to whichever process runs it:
+   - **pm2** (default when `pm2` is installed): runs `osascript DiaAutoAllow.applescript watch`
+     as the pm2 process `dia-auto-allow` and saves the pm2 list. It inherits the grant of pm2's
+     `node`, so if `node` is already enabled under Accessibility there is nothing to grant. pm2
+     must start at login (`pm2 startup`).
+   - **app** (`DIA_AUTO_ALLOW_RUNNER=app`): builds `~/Applications/DiaAutoAllow.app`, a stay-open
+     applet in Login Items. Add it under Privacy & Security → Accessibility with **+** and enable
+     it. Every rebuild invalidates that grant, so the app is rebuilt only when the script changes.
 2. Sets `"cdp": "9222"` in `~/.agent-browser/config.json`, so every `agent-browser` command
    targets Dia without a flag.
-3. Opens System Settings so you can grant DiaAutoAllow **Accessibility** (Privacy & Security →
-   Accessibility). It cannot click without it.
 
 Then, in Dia, open `chrome://inspect/#remote-debugging` and turn on **Allow remote debugging for
 this browser instance**. Repeat this after every Dia restart.
@@ -39,7 +44,8 @@ Check the whole chain any time:
 ~/.agents/skills/dia-browser/scripts/doctor.sh
 ```
 
-Uninstall with `scripts/uninstall.sh`, then remove DiaAutoAllow from the Accessibility list.
+Uninstall with `scripts/uninstall.sh`. With the app runner, also remove DiaAutoAllow from the
+Accessibility list.
 
 ## How it got here
 
@@ -60,9 +66,13 @@ in again.
    for every new CDP connection, and offers no setting or policy to always allow. The
    agent-browser daemon reuses its connection, but every new `--session` or daemon restart asks
    again.
-5. **DiaAutoAllow answers it.** A stay-open AppleScript applet checks Dia once a second for a
-   sheet whose heading is exactly "Allow debugging connection?" and clicks its Allow button.
-   Fresh sessions now connect in 2–3 seconds instead of timing out after 90.
+5. **DiaAutoAllow answers it.** An AppleScript checks Dia once a second for a sheet whose
+   heading is exactly "Allow debugging connection?" and clicks its Allow button. Fresh sessions
+   now connect in 2–4 seconds instead of timing out after 90.
+6. **The applet kept losing its Accessibility grant.** macOS ties the grant to the app's
+   signature, so every rebuild of `DiaAutoAllow.app` silently revoked it, and adding the app
+   back means a manual trip through System Settings. Running the same script as a pm2 process
+   reuses the grant pm2's `node` already has, so pm2 became the default runner.
 
 ## Layout
 

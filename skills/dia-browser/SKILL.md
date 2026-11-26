@@ -17,7 +17,7 @@ For the commands themselves (snapshot, click, fill, wait…) run `agent-browser 
 | --- | --- |
 | Dia remote debugging | On at `chrome://inspect/#remote-debugging`; Dia listens on `127.0.0.1:9222` |
 | agent-browser default | `~/.agent-browser/config.json` has `"cdp": "9222"`, so no flag is needed |
-| Consent dialog | Dia asks "Allow debugging connection?" for every **new** CDP connection; `DiaAutoAllow.app` clicks Allow within about a second |
+| Consent dialog | Dia asks "Allow debugging connection?" for every **new** CDP connection; DiaAutoAllow (pm2 process `dia-auto-allow`, or `DiaAutoAllow.app`) clicks Allow within about a second |
 
 ## Before the first command
 
@@ -41,7 +41,7 @@ fix for the first broken one. If the helper was never installed, run `scripts/in
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| `Operation timed out` on the first command | Consent dialog waiting and DiaAutoAllow not running or lacking Accessibility | `open ~/Applications/DiaAutoAllow.app`; enable it in System Settings → Privacy & Security → Accessibility |
+| `Operation timed out` on the first command | Consent dialog waiting and DiaAutoAllow not running or lacking Accessibility | Run `scripts/doctor.sh`; check `pm2 logs dia-auto-allow` for errors; the runner's process (`node` for pm2, or `DiaAutoAllow.app`) must be enabled in System Settings → Privacy & Security → Accessibility |
 | Connection refused on 9222 | Dia was restarted and remote debugging is off | Ask the user to re-enable it at `chrome://inspect/#remote-debugging` |
 | agent-browser opens a new Chrome | `cdp` missing from `~/.agent-browser/config.json` | `scripts/install.sh`, or pass `--cdp 9222` |
 | Needs a clean, logged-out browser (QA) | The Dia default is wrong for this task | Bypass the user config: `echo '{}' > /tmp/ab-clean.json` then `agent-browser --config /tmp/ab-clean.json --session qa …` |
