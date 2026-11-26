@@ -1,0 +1,80 @@
+# dia-browser-skill
+
+An agent skill that lets [agent-browser](https://github.com/vercel-labs/agent-browser) drive the
+**Dia browser you already use**, with every account you are already logged in to, instead of
+launching a fresh Chrome that makes you sign in again.
+
+It works with Claude Code, Codex, Kanna and any agent that loads skills from `~/.agents/skills`.
+The skill sits next to the upstream `agent-browser` skill, which keeps updating on its own.
+
+> **Security warning.** This setup opens Dia to full remote control from any program on your
+> machine, and auto-accepts Dia's "Allow debugging connection?" dialog. Anything that can reach
+> `127.0.0.1:9222` gets your cookies, sessions and tabs. Use it only on a personal machine you
+> trust, and turn remote debugging off when you do not need it.
+
+## Install
+
+```bash
+npm i -g agent-browser                          # if not installed yet
+npx skills add cuongtranba/dia-browser-skill    # installs the dia-browser skill
+~/.agents/skills/dia-browser/scripts/install.sh # one-time machine setup
+```
+
+`install.sh` does three things, and is safe to re-run:
+
+1. Builds `~/Applications/DiaAutoAllow.app`, a tiny background AppleScript applet that clicks
+   **Allow** on Dia's "Allow debugging connection?" sheet (and on nothing else), and adds it to
+   Login Items.
+2. Sets `"cdp": "9222"` in `~/.agent-browser/config.json`, so every `agent-browser` command
+   targets Dia without a flag.
+3. Opens System Settings so you can grant DiaAutoAllow **Accessibility** (Privacy & Security →
+   Accessibility). It cannot click without it.
+
+Then, in Dia, open `chrome://inspect/#remote-debugging` and turn on **Allow remote debugging for
+this browser instance**. Repeat this after every Dia restart.
+
+Check the whole chain any time:
+
+```bash
+~/.agents/skills/dia-browser/scripts/doctor.sh
+```
+
+Uninstall with `scripts/uninstall.sh`, then remove DiaAutoAllow from the Accessibility list.
+
+## How it got here
+
+The goal: let a coding agent control the browser where I am already logged in, without logging
+in again.
+
+1. **Claude in Chrome did not work with Dia.** The Claude extension runs inside Dia, but
+   `claude --chrome` registers its native messaging host
+   (`com.anthropic.claude_code_browser_extension`) for Google Chrome only. Copying the manifest
+   into `Dia/User Data/NativeMessagingHosts` did not make Dia pick it up, so Claude Code kept
+   attaching to Chrome.
+2. **`--remote-debugging-port` is not an option.** Dia is Chromium-based (Chromium 158), and since
+   Chrome 136 that flag is ignored for the default profile, which is the one holding the logins.
+3. **The supported path is in-browser remote debugging.** `chrome://inspect/#remote-debugging`
+   makes Dia listen on `127.0.0.1:9222` with its real profile. `agent-browser --cdp 9222` then sees
+   every open tab.
+4. **Each new connection triggers a consent dialog.** Chromium asks "Allow debugging connection?"
+   for every new CDP connection, and offers no setting or policy to always allow. The
+   agent-browser daemon reuses its connection, but every new `--session` or daemon restart asks
+   again.
+5. **DiaAutoAllow answers it.** A stay-open AppleScript applet checks Dia once a second for a
+   sheet whose heading is exactly "Allow debugging connection?" and clicks its Allow button.
+   Fresh sessions now connect in 2–3 seconds instead of timing out after 90.
+
+## Layout
+
+```
+skills/dia-browser/
+  SKILL.md                       # what the agent reads: rules, connection model, troubleshooting
+  scripts/install.sh             # machine setup (idempotent)
+  scripts/uninstall.sh           # reverses install.sh
+  scripts/doctor.sh              # checks every link, prints the fix
+  scripts/DiaAutoAllow.applescript
+```
+
+## License
+
+MIT
