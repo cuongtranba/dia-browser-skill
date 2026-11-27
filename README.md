@@ -7,6 +7,10 @@ launching a fresh Chrome that makes you sign in again.
 It works with Claude Code, Codex, Kanna and any agent that loads skills from `~/.agents/skills`.
 The skill sits next to the upstream `agent-browser` skill, which keeps updating on its own.
 
+Version 0.2.0 (the `version` in `skills/dia-browser/SKILL.md`; `scripts/doctor.sh` prints it).
+Report problems at https://github.com/cuongtranba/dia-browser-skill/issues and include the
+doctor output.
+
 > **Security warning.** This setup opens Dia to full remote control from any program on your
 > machine, and auto-accepts Dia's "Allow debugging connection?" dialog. Anything that can reach
 > `127.0.0.1:9222` gets your cookies, sessions and tabs. Use it only on a personal machine you
@@ -24,14 +28,21 @@ npx skills add cuongtranba/dia-browser-skill    # installs the dia-browser skill
 
 1. Starts **DiaAutoAllow**, a small AppleScript that checks Dia once a second and clicks
    **Allow** on the "Allow debugging connection?" sheet (and on nothing else). It needs macOS
-   **Accessibility**, granted to whichever process runs it:
+   **Accessibility**, granted to the process macOS counts as responsible for the `osascript`
+   that runs it:
    - **pm2** (default when `pm2` is installed): runs `osascript DiaAutoAllow.applescript watch`
-     as the pm2 process `dia-auto-allow` and saves the pm2 list. It inherits the grant of pm2's
-     `node`, so if `node` is already enabled under Accessibility there is nothing to grant. pm2
-     must start at login (`pm2 startup`).
+     as the pm2 process `dia-auto-allow` (its pm2 `script path` is `/usr/bin/osascript`) with
+     log timestamps that carry the UTC offset, and saves the pm2 list. pm2 starts it from its
+     daemon, a `node` process, so the grant that counts is the one on **that daemon's `node`
+     binary**, not on osascript. If that `node` is already enabled under Accessibility there is
+     nothing to grant. It is not assumed: `install.sh` and `doctor.sh` check it, and `doctor.sh`
+     names the exact binary when it is missing. pm2 must start at login (`pm2 startup`).
    - **app** (`DIA_AUTO_ALLOW_RUNNER=app`): builds `~/Applications/DiaAutoAllow.app`, a stay-open
      applet in Login Items. Add it under Privacy & Security → Accessibility with **+** and enable
      it. Every rebuild invalidates that grant, so the app is rebuilt only when the script changes.
+
+   After starting, `install.sh` waits for the watcher to report whether it can read Dia's
+   windows and prints a warning if it cannot.
 2. Sets `"cdp": "9222"` in `~/.agent-browser/config.json`, so every `agent-browser` command
    targets Dia without a flag.
 
@@ -43,6 +54,23 @@ Check the whole chain any time:
 ```bash
 ~/.agents/skills/dia-browser/scripts/doctor.sh
 ```
+
+Besides "is it running", doctor checks that the watcher can read Dia's windows through
+Accessibility (the watcher writes its state to
+`~/Library/Application Support/dia-browser-skill/watcher.status`) and that a real CDP connection
+to Dia completes within 10 s (`DIA_CDP_TIMEOUT` changes the limit). That check opens one
+throwaway connection, so Dia shows the consent sheet for about a second.
+
+**Where the watcher logs.** `osascript` logs to stderr, so under pm2 every line is in
+`~/.pm2/logs/dia-auto-allow-error.log` (`pm2 logs dia-auto-allow` shows it); the `-out.log` file
+stays empty. That is normal, not a sign of errors: lines are prefixed `info:`, `warn:` or
+`error:`. A state is logged once when it changes (Dia not running, Accessibility denied, an
+unrecognised sheet), not once per second, and an allowed connection logs `info: allowed N
+debugging connection(s)`.
+
+**If a command hangs with no output**, see the Troubleshooting table in `SKILL.md`: kill stale
+daemons with `pkill -9 -f agent-browser`, re-run doctor, and run agent-browser commands with a
+timeout instead of retrying in a loop.
 
 Uninstall with `scripts/uninstall.sh`. With the app runner, also remove DiaAutoAllow from the
 Accessibility list.
@@ -91,7 +119,7 @@ in again.
 6. **The applet kept losing its Accessibility grant.** macOS ties the grant to the app's
    signature, so every rebuild of `DiaAutoAllow.app` silently revoked it, and adding the app
    back means a manual trip through System Settings. Running the same script as a pm2 process
-   reuses the grant pm2's `node` already has, so pm2 became the default runner.
+   reuses the grant already on pm2's daemon `node` binary, so pm2 became the default runner.
 7. **Other profiles cannot be reached through Dia's own windows safely.** CDP's
    `Target.createTarget` only accepts browser contexts CDP created, so it cannot open a tab in
    an existing profile, and Dia ignores `--profile-directory` (it starts a second instance on

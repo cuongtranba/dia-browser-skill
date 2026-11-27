@@ -1,9 +1,13 @@
 ---
 name: dia-browser
+version: 0.2.0
 description: Drives the user's own running Dia browser (with all their logged-in accounts) through agent-browser over CDP instead of launching a fresh Chrome. Use whenever a browser task needs the user's existing sessions — Gmail, GitHub, Cloudflare, dashboards, anything they are already signed in to — or the user mentions Dia, "my browser", "my tabs", "đang login sẵn", or complains that agent-browser keeps opening Chrome and asking them to log in again. Also use when a task needs a specific Dia profile (another account, "profile cuong-dev", "dùng profile khác") — scripts/dia-profile.mjs gives that profile its own headless agent-browser session with the profile's live cookies, without touching Dia's windows. Also use to diagnose "Operation timed out", "connection refused" on port 9222, a stuck "Allow debugging connection?" dialog, or to install/uninstall the DiaAutoAllow helper. Load the agent-browser skill for the command reference; this skill covers only connecting to Dia.
 ---
 
 # dia-browser
+
+Version 0.2.0. Source and bug reports: https://github.com/cuongtranba/dia-browser-skill (issues welcome;
+`scripts/doctor.sh` prints the installed version first, so include it).
 
 agent-browser drives the user's real Dia browser over the Chrome DevTools Protocol. Every
 logged-in account in Dia is available, so never ask the user to log in again and never launch
@@ -18,11 +22,15 @@ For the commands themselves (snapshot, click, fill, wait…) run `agent-browser 
 | Dia remote debugging | On at `chrome://inspect/#remote-debugging`; Dia listens on `127.0.0.1:9222` |
 | agent-browser default | `~/.agent-browser/config.json` has `"cdp": "9222"`, so no flag is needed |
 | Consent dialog | Dia asks "Allow debugging connection?" for every **new** CDP connection; DiaAutoAllow (pm2 process `dia-auto-allow`, or `DiaAutoAllow.app`) clicks Allow within about a second |
+| Accessibility | The process that runs DiaAutoAllow needs it. Under pm2 that is the **pm2 daemon's `node` binary** (the parent of the `osascript` pm2 lists as `script path`), not osascript itself; for the app runner it is `DiaAutoAllow.app`. The watcher reports whether it works in `~/Library/Application Support/dia-browser-skill/watcher.status`, which `doctor.sh` reads |
 
 ## Before the first command
 
-Run `scripts/doctor.sh` (in this skill's folder). It checks every link above and prints the
-fix for the first broken one. If the helper was never installed, run `scripts/install.sh`.
+Run `scripts/doctor.sh` (in this skill's folder). It checks every link above, including that
+DiaAutoAllow can really read Dia's windows through Accessibility and that a real CDP connection
+completes within 10 s, and prints a fix for each broken one. The CDP check opens one throwaway
+connection, so Dia shows the consent sheet for about a second. If the helper was never
+installed, run `scripts/install.sh`.
 
 ## Rules
 
@@ -36,6 +44,11 @@ fix for the first broken one. If the helper was never installed, run `scripts/in
   work, so the front window can change under you, and switching a window's profile also
   restores that profile's tabs into it. Profile work goes through `dia-profile.mjs`, which
   only reads cookies from Dia.
+- **Always bound agent-browser commands with a timeout, and never retry in a loop.** Against Dia
+  a command can block forever with no output and no error (see Troubleshooting). Run it with
+  your tool's timeout (about 60 s), or in the background and kill it if it has not returned. If
+  one hangs, do not run it again: run Troubleshooting's hang fix first. Each retry leaves
+  another stuck client behind.
 - **Reuse the default session.** Every new `--session <name>` opens a new CDP connection and
   triggers one consent dialog. DiaAutoAllow handles it, but reusing the default session is
   faster.
@@ -74,7 +87,8 @@ $P close cuong-dev                        # stop the session when done
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| `Operation timed out` on the first command | Consent dialog waiting and DiaAutoAllow not running or lacking Accessibility | Run `scripts/doctor.sh`; check `pm2 logs dia-auto-allow` for errors; the runner's process (`node` for pm2, or `DiaAutoAllow.app`) must be enabled in System Settings → Privacy & Security → Accessibility |
+| `Operation timed out` on the first command | Consent dialog waiting and DiaAutoAllow not running or lacking Accessibility | Run `scripts/doctor.sh`; check `pm2 logs dia-auto-allow` (all lines are in the error log, prefixed `info:`/`warn:`/`error:`); grant Accessibility to the process doctor names (under pm2 the pm2 daemon's `node`, or `DiaAutoAllow.app`) in System Settings → Privacy & Security → Accessibility |
+| A command hangs: no output, no error, never returns | Often a wedged agent-browser daemon left by an earlier hung or killed command: every new client talks to that daemon, so it hangs whatever Dia does, and the daemon can ignore SIGTERM | Stop retrying. `pkill -9 -f agent-browser` (plain `kill` is not enough; this also stops the user's other agent-browser sessions, so say so), then run `scripts/doctor.sh` and retry **once**, with a timeout. Doctor's own CDP check bypasses the agent-browser daemon: if it passes while agent-browser hangs, the daemon is the culprit; if it fails, follow its fix text |
 | Connection refused on 9222 | Dia was restarted and remote debugging is off | Ask the user to re-enable it at `chrome://inspect/#remote-debugging` |
 | agent-browser opens a new Chrome | `cdp` missing from `~/.agent-browser/config.json` | `scripts/install.sh`, or pass `--cdp 9222` |
 | `Dia has not loaded profile "…"` | No Dia window uses that profile | Ask the user to open one (File → New Window, then switch it to the profile) |
