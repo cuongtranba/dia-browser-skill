@@ -3,10 +3,13 @@
 #   1. runs DiaAutoAllow, which clicks "Allow" on Dia's "Allow debugging connection?" sheet;
 #   2. points agent-browser at Dia by default ("cdp": "9222" in ~/.agent-browser/config.json).
 #
-# DiaAutoAllow needs macOS Accessibility, granted to whatever process runs it. Runners:
+# DiaAutoAllow needs macOS Accessibility, granted to the process macOS counts as responsible
+# for the osascript that runs it. Runners:
 #   pm2 (default when pm2 is installed): `osascript DiaAutoAllow.applescript watch` as a pm2
-#        process. It inherits the Accessibility grant of pm2's node, so if node is already in
-#        System Settings > Privacy & Security > Accessibility there is nothing to grant.
+#        process. pm2 starts it from its daemon (a node process, parent of osascript), so the
+#        grant belongs to that daemon's node binary, not to the osascript pm2 lists as its
+#        "script path". If that node is already under System Settings > Privacy & Security >
+#        Accessibility there is nothing to grant. This script verifies it instead of assuming.
 #   app: ~/Applications/DiaAutoAllow.app, a stay-open applet started at login. It needs its own
 #        Accessibility grant, and a rebuild invalidates it, so it is rebuilt only when the
 #        AppleScript changed.
@@ -21,6 +24,7 @@ PLIST="$APP/Contents/Info.plist"
 BUNDLE_ID="io.github.dia-browser-skill.DiaAutoAllow"
 CDP_PORT="${DIA_CDP_PORT:-9222}"
 CONFIG="$HOME/.agent-browser/config.json"
+STATUS_FILE="${DIA_AUTO_ALLOW_STATUS:-$HOME/Library/Application Support/dia-browser-skill/watcher.status}"
 
 say() { printf '==> %s\n' "$*"; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
@@ -45,11 +49,13 @@ install_pm2() {
   command -v pm2 >/dev/null || die "pm2 is not installed: npm i -g pm2 (or DIA_AUTO_ALLOW_RUNNER=app)"
   [[ -d "$APP" ]] && { say "Removing the DiaAutoAllow.app runner"; remove_app; }
   pm2 delete "$PM2_NAME" >/dev/null 2>&1 || true
-  pm2 start osascript --name "$PM2_NAME" -- "$SRC" watch >/dev/null
+  # pm2's default log prefix is local time without an offset; add the offset so lines are unambiguous.
+  pm2 start osascript --name "$PM2_NAME" --log-date-format "YYYY-MM-DD HH:mm:ss Z" -- "$SRC" watch >/dev/null
   pm2 save >/dev/null
-  say "DiaAutoAllow runs under pm2 as \"$PM2_NAME\" (logs: pm2 logs $PM2_NAME)."
-  say "It uses pm2's Accessibility grant. If doctor.sh reports a timeout, enable \"node\" in"
-  say "System Settings > Privacy & Security > Accessibility, and make pm2 start at login (pm2 startup)."
+  say "DiaAutoAllow runs under pm2 as \"$PM2_NAME\"."
+  say "Logs: pm2 logs $PM2_NAME. osascript logs to stderr, so every line is in the error log"
+  say "(~/.pm2/logs/$PM2_NAME-error.log) and the out log stays empty. That is normal."
+  say "Make pm2 start at login: pm2 startup."
 }
 
 install_app() {
@@ -80,7 +86,32 @@ install_app() {
   say "DiaAutoAllow.app is running and starts at login."
 }
 
+# Waits for the fresh watcher to report what it sees through Accessibility, and says so. The
+# grant belongs to the watcher's own process, so only the watcher can tell.
+verify_watcher() {
+  rm -f "$STATUS_FILE"
+  local i state detail
+  for i in $(seq 1 15); do
+    [[ -f "$STATUS_FILE" ]] && break
+    sleep 1
+  done
+  if [[ ! -f "$STATUS_FILE" ]]; then
+    say "WARNING: DiaAutoAllow did not report within 15 s. Check: $HERE/doctor.sh"
+    return 0
+  fi
+  IFS=$'\t' read -r _ state detail < "$STATUS_FILE" || true
+  case "$state" in
+    ok)     say "Verified: DiaAutoAllow reads Dia's windows through Accessibility ($detail)." ;;
+    no-dia) say "DiaAutoAllow is waiting for Dia to start; run $HERE/doctor.sh once Dia is open to verify Accessibility." ;;
+    denied) say "WARNING: DiaAutoAllow has no Accessibility access ($detail)."
+            say "Enable the process that runs it in System Settings > Privacy & Security > Accessibility,"
+            say "then run $HERE/doctor.sh (it names the exact process)." ;;
+    *)      say "WARNING: DiaAutoAllow cannot read Dia's windows: ${detail:-$state}. Check: $HERE/doctor.sh" ;;
+  esac
+}
+
 "install_$runner"
+verify_watcher
 
 say "Setting \"cdp\": \"$CDP_PORT\" in $CONFIG"
 mkdir -p "$(dirname "$CONFIG")"

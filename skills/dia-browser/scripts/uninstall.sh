@@ -12,6 +12,7 @@ fi
 pkill -f "$APP/Contents/MacOS/applet" 2>/dev/null || true
 osascript -e 'tell application "System Events" to delete (every login item whose name is "DiaAutoAllow")' >/dev/null 2>&1 || true
 rm -rf "$APP"
+rm -f "${DIA_AUTO_ALLOW_STATUS:-$HOME/Library/Application Support/dia-browser-skill/watcher.status}"
 
 if [[ -f "$CONFIG" ]]; then
   osascript -l JavaScript - "$CONFIG" <<'JXA' >/dev/null
